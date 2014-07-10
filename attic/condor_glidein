@@ -1,0 +1,281 @@
+#!/bin/env bash
+#
+# Wrapper to run Condor glidein (master + startd)
+# Configured via args 
+# Supporting pool password and GSI auth. 
+# glidein exits if no jobs for specified time. 
+#
+# Author: John Hover <jhover@bnl.gov>
+#
+
+############################################
+#     Constants & Defaults
+############################################
+WRAPPER_VERSION=0.9.0
+CONDOR_VERSION=8.0.6
+ARCH=x86_64
+PLATFORM=RedHat6
+TARBALL_NAME=condor-${CONDOR_VERSION}-${ARCH}_${PLATFORM}-stripped.tar.gz
+TARBALL_URL=http://dev.racf.bnl.gov/dist/condor/$CONDOR_VERSION/rhel6/$ARCH/$TARBALL_NAME
+CONFIG=$CONDOR_DIR/etc/condor_config
+COLLECTOR=gridtest05.racf.bnl.gov
+PORT=29618
+AUTH=password
+POOLPASS=changeme
+GRIDSUBS=changeme
+EXITTIME=300
+HDIR=~/
+CONDOR_DIR=`mktemp -d -p $HDIR -t condor-glidein.XXXX`
+
+############################################
+#                Functions                 #
+############################################
+
+usage()
+{
+cat << EOF
+usage: $0 [options]
+
+Run glidein against given collector:port and auth for at least -x seconds. 
+
+OPTIONS:
+ -h     
+ -c      Collector name
+ -p      Collector port
+ -a      Auth [password|gsi]
+ -w      Pool password (for password auth)
+ -s      Grid-mapfile subjects (for GSI auth)
+ -x      Glidein linger time seconds [300]
+ -v      Verbose
+EOF
+}
+
+get_args() {
+	while getopts “hc:p:a:w:s:x:v” OPTION ; do
+	     case $OPTION in
+	        h)
+	             usage
+	             exit 1;;
+	        c)
+	            COLLECTOR=$OPTARG;;
+	        p)
+	            PORT=$OPTARG;;
+	        a)
+	            AUTH=$OPTARG;;
+	        w)
+	            POOLPASS=$OPTARG;;
+	        s)  
+	            GRIDSUBS=$OPTARG;;
+	        x)
+	            EXITTIME=$OPTARG;;  
+	        v)
+	            VERBOSE=1;;         
+	        ?)
+	             usage
+	             exit 1;;
+	     esac
+	done
+}
+
+validate_args() {
+	echo "COLLECTOR is $COLLECTOR"
+	echo "PORT is $PORT"
+	echo "AUTH is $AUTH"
+	echo "POOLPASS is $POOLPASS"
+	echo "EXITTIME is $EXITTIME"
+	echo "CONDOR_DIR is $CONDOR_DIR"
+}
+
+print_header() {
+	echo "condor_glidein wrapper version $WRAPPER_VERSION"
+	HOST=`hostname -f`
+	DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+	echo "running on $HOST $DATE" 
+}
+
+setup_dir() {
+	cd 
+	WD=`pwd`
+	echo "working dir is $WD"
+	echo "creating Condor dir $CONDOR_DIR"
+	mkdir -p $CONDOR_DIR
+	cd $CONDOR_DIR
+
+}
+
+handle_tarball() {
+    cd $CONDOR_DIR
+	echo "retrieving tarball from $TARBALL_URL"
+	wget $TARBALL_URL > /dev/null 2>&1
+	echo "unpacking tarball..."
+	tar --verbose --extract --gzip --strip-components=1  --file=$TARBALL_NAME > /dev/null 2>&1
+}
+
+install_condor() {
+	echo "running condor_install..."
+	./condor_install --type=execute > /dev/null 2>&1
+	rc = $?
+	echo "condor_install finished with rc=$rc"
+	export CONDOR_CONFIG=$CONDOR_DIR/etc/condor_config
+    echo "CONDOR_CONFIG=$CONDOR_CONFIG"
+    HN=`hostname -s`
+    echo "hostname is $HN"
+    echo "making config dir: $CONDOR_DIR/local.$HN/config"
+    mkdir -p $CONDOR_DIR/local.$HN/config
+	
+}
+
+configure_condor() {
+    echo "adding COLLECTOR_HOST=$COLLECTOR:$PORT to config"
+    HN=`hostname -s`
+    LCONFIG=$CONDOR_DIR/local.$HN/condor_config.local
+    echo COLLECTOR_HOST=$COLLECTOR:$PORT >> $LCONFIG
+	echo "configuring condor auth..."
+	HN=`hostname -s`
+	LCONFIG=$CONDOR_DIR/local.$HN/condor_config.local
+	
+    echo "STARTD_NOCLAIM_SHUTDOWN = $EXITTIME" >> $LCONFIG	
+	echo "START = TRUE" >> $LCONFIG
+ 	echo "SUSPEND = FALSE" >> $LCONFIG
+ 	echo "PREEMPT = FALSE" >> $LCONFIG
+ 	echo "KILL = FALSE" >> $LCONFIG
+ 	echo "RANK = 0" >> $LCONFIG
+ 	echo "CLAIM_WORKLIFE = 3600" >> $LCONFIG
+ 	echo "JOB_RENICE_INCREMENT=0" >> $LCONFIG
+ 	echo "GSI_DELEGATION_KEYBITS = 1024" >> $LCONFIG
+	echo 'CCB_ADDRESS = $(COLLECTOR_HOST)' >> $LCONFIG
+	echo "HIGHPORT = 30000" >> $LCONFIG 
+	echo "LOWPORT = 20000" >> $LCONFIG
+	echo "USE_SHARED_PORT = TRUE" >> $LCONFIG
+	echo 'DAEMON_LIST =  $(DAEMON_LIST) SHARED_PORT' >> $LCONFIG
+	echo 'ALLOW_WRITE = condor_pool@*' >> $LCONFIG
+	echo "SEC_DEFAULT_AUTHENTICATION = REQUIRED" >> $LCONFIG
+	echo "SEC_DEFAULT_AUTHENTICATION_METHODS = FS" >> $LCONFIG
+	
+	echo "SEC_DEFAULT_ENCRYPTION = REQUIRED" >> $LCONFIG
+	echo "SEC_DEFAULT_INTEGRITY = REQUIRED" >> $LCONFIG
+	echo "SEC_ENABLE_MATCH_PASSWORD_AUTHENTICATION  = True" >> $LCONFIG
+	echo 'ALLOW_WRITE = $(ALLOW_WRITE), submit-side@matchsession/*' >> $LCONFIG
+	echo 'ALLOW_ADMINISTRATOR = condor_pool@*/*' >> $LCONFIG
+	echo "NUM_SLOTS = 1" >> $LCONFIG		
+					
+	if [ "$AUTH" == "password" ]; then
+	   echo "password auth requested. creating file..."
+	   echo 'SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), PASSWORD' >>$LCONFIG
+	   condor_store_cred -f $CONDOR_DIR/condor_password -p $POOLPASS > /dev/null 2>&1
+	   echo "SEC_PASSWORD_FILE = $CONDOR_DIR/condor_password" >> $LCONFIG
+	   echo "password auth setup complete."		
+	fi
+
+	if [ "$AUTH" == "gsi" ]; then
+		echo "gsi auth requested..."
+		
+		echo 'SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), GSI' >>$LCONFIG
+		GSI_DAEMON_DIRECTORY=$CONDOR_DIR
+		echo "GSI_DAEMON_DIRECTORY=$CONDOR_DIR" >>$LCONFIG
+		echo "GSI_DAEMON_TRUSTED_CA_DIR=/etc/grid-security/certificates"  >>$LCONFIG
+		echo "GSI_DAEMON_PROXY = $X509_USER_PROXY" >>$LCONFIG
+		echo 'GSI_DAEMON_NAME = /DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=gridtest*.racf.bnl.gov' >> $LCONFIG
+		echo 'GRIDMAP = $(GSI_DAEMON_DIRECTORY)/grid-mapfile' >>$LCONFIG
+		GRIDMAP=$GSI_DAEMON_DIRECTORY/grid-mapfile
+		echo '"/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=gridtest03.racf.bnl.gov" condor_pool' >>$GRIDMAP
+		echo '"/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=gridtest05.racf.bnl.gov" condor_pool' >>$GRIDMAP		
+		
+		echo "gsi auth setup complete."
+		cat $GRIDMAP
+	fi	
+	echo "CONDOR_CONFIG:"
+	cat $LCONFIG
+	echo " "
+	echo "ENVIRONMENT:"
+	env | sort 
+	echo " "
+
+	
+}
+
+f_exit(){
+        if [ "$1" == "" ]; then
+                RETVAL=0
+        else
+                RETVAL=$1
+        fi
+        echo "exiting with RC = $RETVAL"
+
+		echo "cleaning up temp dir..."
+		rm -rfv $CONDOR_DIR
+
+		DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+		echo "[$DATE] exitting()..."
+        exit $RETVAL
+}
+
+run_condor_master() {
+	echo "running condor master..."
+	condor_master -f -pidfile $CONDOR_DIR/master.pid &
+	sleep 300
+	MASTERPID=`cat $CONDOR_DIR/master.pid`
+	echo "master PID is $MASTERPID"
+    DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+	echo "[$DATE] waiting for master to exit..."
+	wait $MASTERPID
+    DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+	echo "[$DATE] master has exitted. done."
+	echo "cleaning up temp dir..."
+	rm -rfv $CONDOR_DIR | tail -10
+}
+
+############################################
+#             Main script                  #
+############################################
+
+get_args "$@"
+
+validate_args
+
+print_header
+
+DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+echo "[$DATE] setup_dir()..."
+
+setup_dir
+rc=$?
+if [ $rc -ne 0 ]; then
+        f_exit $rc
+fi
+
+DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+echo "[$DATE] handle_tarball()..."
+
+handle_tarball
+rc=$?
+if [ $rc -ne 0 ]; then
+        f_exit $rc
+fi
+
+DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+echo "[$DATE] install_condor()..."
+
+install_condor
+rc=$?
+if [ $rc -ne 0 ]; then
+        f_exit $rc
+fi
+
+DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+echo "[$DATE] configure_condor()..."
+configure_condor
+rc=$?
+if [ $rc -ne 0 ]; then
+        f_exit $rc
+fi
+
+DATE=`date -u +"%Y-%m-%d %H:%M:%SUTC"`
+echo "[$DATE] run_condor_master()..."
+run_condor_master
+rc=$?
+if [ $rc -ne 0 ]; then
+        f_exit $rc
+fi
+
+
