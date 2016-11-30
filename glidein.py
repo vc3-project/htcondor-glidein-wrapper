@@ -278,8 +278,8 @@ class CondorGlidein(object):
         cfs += "LOWPORT = 20000\n"         
         cfs += "DAEMON_LIST =  MASTER STARTD\n" 
         cfs += "ALLOW_WRITE = condor_pool@*\n" 
-        cfs += "SEC_DEFAULT_AUTHENTICATION = REQUIRED\n" 
-        cfs += "SEC_DEFAULT_AUTHENTICATION_METHODS = PASSWORD\n" 
+        cfs += "SEC_DEFAULT_AUTHENTICATION = OPTIONAL\n" 
+        cfs += "SEC_DEFAULT_AUTHENTICATION_METHODS = CLAIMTOBE\n" 
         cfs += "SEC_ENABLE_MATCH_PASSWORD_AUTHENTICATION  = True\n" 
         cfs += "SEC_DEFAULT_ENCRYPTION = REQUIRED\n" 
         cfs += "SEC_DEFAULT_INTEGRITY = REQUIRED\n" 
@@ -290,7 +290,7 @@ class CondorGlidein(object):
         #cfs += "SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), PASSWORD\n"  
         #cfs += "SEC_DEFAULT_AUTHENTICATION_METHODS = $(SEC_DEFAULT_AUTHENTICATION_METHODS), GSI\n"
         types = ' ,'.join(self.auth) 
-        cfs += "SEC_DEFAULT_AUTHENTICATION_METHODS = %s\n" % types
+        #cfs += "SEC_DEFAULT_AUTHENTICATION_METHODS = %s\n" % types
 
         if 'PASSWORD' in self.auth:
             self.log.info("Password auth requested...")
@@ -388,8 +388,8 @@ OPTIONS:
     # Defaults
     condor_version="8.5.6"
     condor_urlbase="http://download.virtualclusters.org/repository"
-    collector_host="gridtest05.racf.bnl.gov"
-    collector_port= "29618"
+    collector_host="condor.grid.uchicago.edu"
+    collector_port= "9618"
 
     authtype=["fs"]
     gsitoken="/DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=gridtest3.racf.bnl.gov, /DC=com/DC=DigiCert-Grid/O=Open Science Grid/OU=Services/CN=gridtest5.racf.bnl.gov "
