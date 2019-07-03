@@ -384,8 +384,8 @@ class CondorGlidein(object):
             LOCAL_DIR                   = $(GLIDEIN_LOCAL_DIR)
             LOCK                        = $(GLIDEIN_LOCAL_DIR)/lock
             USE_SHARED_PORT             = TRUE
-            SHARED_PORT_PORT            = 0
-            COLLECTOR_PORT              = 9618 
+            SHARED_PORT_ARGS            = -p $RANDOM_INTEGER(9100,9600)
+            COLLECTOR_PORT              = 9618
             GLIDEIN_NAME                = glidein_$RANDOM_INTEGER(10000,99999,1)
             MASTER_NAME                 = $(GLIDEIN_NAME)
             STARTD_NAME                 = $(GLIDEIN_NAME)
