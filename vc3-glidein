@@ -20,7 +20,7 @@ import textwrap
 import multiprocessing
 import uuid
 
-__version__ = "1.1.6"
+__version__ = "1.1.7"
 
 class CondorGlidein(object):
     """
@@ -159,6 +159,20 @@ class CondorGlidein(object):
             self.log.error("Failed to create working directory")
             self.cleanup()
 
+    def os_release(self):
+        distro = ''
+        distro_ver = ''
+        if os.path.isfile("/etc/os-release"):
+            with open("/etc/os-release") as osfile:
+                lines = osfile.readlines()
+                for line in lines:
+                    (attr, val) = line.split('=')
+                    if attr == 'NAME':
+                        distro = val.strip().strip('"')
+                    elif attr == 'VERSION':
+                        distro_ver = val.strip().strip('"')
+        return '{0}{1}'.format(distro, distro_ver)
+
     def download_tarball(self):
         """
         Determine the worker's architecture and distribution, download the 
@@ -185,11 +199,14 @@ class CondorGlidein(object):
                 distro = "Ubuntu" + distro_major
             elif re.search("SUSE", distro_name, re.I):
                 distro = "SUSE" + distro_major
+            elif self.os_release():
+                distro = self.os_release()
             else:
                 raise Exception("Unable to determine distro")
         elif platform.system() == 'Darwin':
                 distro = 'MacOSX' # why not?
-
+        
+        self.log.info("Using distro: %s" % distro)
         self.condor_platform = "condor-%s-%s_%s-stripped" % (condor_version,
                                                         arch, distro)
 
