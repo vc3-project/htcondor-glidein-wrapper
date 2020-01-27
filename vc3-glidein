@@ -78,6 +78,7 @@ class CondorGlidein(object):
         #self.glidein_dir = None # iwd + glidein dir name
         #self.exec_wrapper = None
         #self.startd_cron = None
+        #self.condor_master = None # the condor master popen object
         
 
         self.setup_signaling()
@@ -153,9 +154,9 @@ class CondorGlidein(object):
             # Some extra directories that need to be created
             os.mkdir(self.glidein_local_dir + "/etc")
             os.mkdir(self.glidein_local_dir + "/tokens.d")
-            os.mkdir(self.glidein_local_dir + "/log")
+            os.mkdir(self.glidein_local_dir + "/passwords.d")
+            os.mkdir(self.glidein_local_dir + "/creds")
             os.mkdir(self.glidein_local_dir + "/lock")
-            os.mkdir(self.glidein_local_dir + "/execute")
             self.log.debug("Glidein local directory is %s" % self.glidein_local_dir)
         except Exception as e:
             self.log.debug(e)
@@ -330,7 +331,8 @@ class CondorGlidein(object):
         """ 
         try:
             self.log.info("Sending SIGTERM to condor_master")
-            os.kill(self.masterpid, signal.SIGTERM)
+            self.condor_master.terminate()
+            self.condor_master.wait() 
         except Exception as e: 
             self.log.debug(e)
 
@@ -506,8 +508,8 @@ class CondorGlidein(object):
                 # name the token after the collector
                 tokenpath = self.glidein_local_dir + "/tokens.d/" + self.collector
                 with open(tokenpath, 'w') as f: 
-                    f.write(self.token)
-                os.chmod(self.tokenpath, 0400)
+                    f.write(self.token+"\n")
+                os.chmod(tokenpath, 0400)
                 self.log.debug("Using token: %s", self.token)
             except Exception as e:
                 self.log.error("Something went wrong with token auth.")
@@ -515,10 +517,12 @@ class CondorGlidein(object):
                 self.cleanup()
             token_config = """
                 SEC_DEFAULT_ENCRYPTION = REQUIRED
-                SEC_CREDENTIAL_DIRECTORY = $(LOCAL_DIR)/creds
+                SEC_CREDENTIAL_DIRECTORY = $(GLIDEIN_LOCAL_DIR)/creds
                 CREDD_OAUTH_MODE = True
                 TOKENS = True
                 SEC_TOKEN_SYSTEM_DIRECTORY = $(GLIDEIN_LOCAL_DIR)/tokens.d
+                SEC_TOKEN_DIRECTORY = $(GLIDEIN_LOCAL_DIR)/tokens.d
+                SEC_PASSWORD_DIRECTORY = $(GLIDEIN_LOCAL_DIR)/passwords.d
                 SEC_DEFAULT_AUTHENTICATION_METHODS = TOKEN,FS
                 SEC_CLIENT_AUTHENTICATION_METHODS = TOKEN,FS
                 """
@@ -574,8 +578,8 @@ class CondorGlidein(object):
     def start_condor(self):
         self.log.info("Starting condor_master..")
         cmd = "%s/sbin/condor_master -dyn -f -pidfile %s/master.pid -t" % (self.condor_dir, self.glidein_local_dir)
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        self.masterpid = p.pid
+        self.condor_master = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        self.masterpid = condor_master.pid
         self.mypid = os.getpid()
         self.log.info("I am running as pid %s. condor_master is running as pid %s" % (self.mypid, self.masterpid))
         time.sleep(300)
