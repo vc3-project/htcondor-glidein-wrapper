@@ -20,7 +20,7 @@ import textwrap
 import multiprocessing
 import uuid
 
-__version__ = "1.1.7"
+__version__ = "1.2.0"
 
 class CondorGlidein(object):
     """
@@ -42,6 +42,7 @@ class CondorGlidein(object):
                     startd_cron=None,
                     auth=None,
                     passwordfile=None,
+                    token=None,
                     extra_config=None,
                     ccb=None,
                     partitionable=None,
@@ -61,6 +62,7 @@ class CondorGlidein(object):
         self.noclean = noclean
         self.auth=auth
         self.passwordfile=passwordfile
+        self.token=token
         self.extra_config = extra_config 
         self.partitionable = partitionable
         self.cores = cores
@@ -150,6 +152,7 @@ class CondorGlidein(object):
             os.mkdir(self.glidein_local_dir)
             # Some extra directories that need to be created
             os.mkdir(self.glidein_local_dir + "/etc")
+            os.mkdir(self.glidein_local_dir + "/tokens.d")
             os.mkdir(self.glidein_local_dir + "/log")
             os.mkdir(self.glidein_local_dir + "/lock")
             os.mkdir(self.glidein_local_dir + "/execute")
@@ -497,6 +500,30 @@ class CondorGlidein(object):
                 """ % (self.password_full_path)
             config_bits.append(textwrap.dedent(passwd_config)) 
 
+        if "token" in self.auth and self.token is not None:
+            try:
+                self.log.info("Using token authentication")
+                # name the token after the collector
+                tokenpath = self.glidein_local_dir + "/tokens.d/" + self.collector
+                with open(tokenpath, 'w') as f: 
+                    f.write(self.token)
+                os.chmod(self.tokenpath, 0400)
+                self.log.debug("Using token: %s", self.token)
+            except Exception as e:
+                self.log.error("Something went wrong with token auth.")
+                self.log.debug(e)
+                self.cleanup()
+            token_config = """
+                SEC_DEFAULT_ENCRYPTION = REQUIRED
+                SEC_CREDENTIAL_DIRECTORY = $(LOCAL_DIR)/creds
+                CREDD_OAUTH_MODE = True
+                TOKENS = True
+                SEC_TOKEN_SYSTEM_DIRECTORY = $(GLIDEIN_LOCAL_DIR)/tokens.d
+                SEC_DEFAULT_AUTHENTICATION_METHODS = TOKEN,FS
+                SEC_CLIENT_AUTHENTICATION_METHODS = TOKEN,FS
+                """
+            config_bits.append(textwrap.dedent(token_config))
+
         # We want to take any VC3_ environment variables and expose them as
         # classads to the startd    
         self.log.debug("Exporting VC3 environment variables as classads...")
@@ -649,13 +676,14 @@ if __name__ == '__main__':
     
     parser.set_defaults(
             workdir=None,
-            condor_version="8.6.0",
+            condor_version="8.9.5",
             condor_urlbase="http://download.virtualclusters.org",
             collector="condor.virtualclusters.org:9618",
             ccb=None,
             linger=60 * 60 * 2,  # two hours, in seconds
-            auth="password",
+            auth="token",
             passwordfile=None,
+            token=None,
             noclean=False,
             exec_wrapper=None,
             vc3_env=None,
@@ -687,10 +715,13 @@ if __name__ == '__main__':
          dest="linger", help="idletime in seconds before self-shutdown")
 
     ggroup.add_option("-a", "--auth", action="store", type="string",
-         dest="auth", help="Authentication type (e.g., password, GSI)")
+         dest="auth", help="Authentication type (password, token)")
 
     ggroup.add_option("-p", "--password", action="store", type="string",
          dest="passwordfile", help="HTCondor pool password file")
+
+    ggroup.add_option("-T", "--token", action="store", type="string",
+         dest="token", help="HTCondor pool token")
 
     ggroup.add_option("-e", "--extra-config", action="store", type="string",
          dest="extra_config", help="Additional configuration")
@@ -766,6 +797,7 @@ if __name__ == '__main__':
         startd_cron=options.periodic,
         auth=options.auth,
         passwordfile=options.passwordfile,
+        token=options.token,
         extra_config=options.extra_config,
         partitionable=options.partitionable,
         slots=options.slots,
