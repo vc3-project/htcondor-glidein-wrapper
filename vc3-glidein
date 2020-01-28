@@ -71,6 +71,8 @@ class CondorGlidein(object):
         self.disk = disk
         self.glidein_id = glidein_id
 
+        self.condor_master = None # the condor master popen object can get called before its defined
+
         # Other items that are set later
         #self.log
         #self.condor_platform = None # condor-version-arch_distro-stripped
@@ -78,7 +80,6 @@ class CondorGlidein(object):
         #self.glidein_dir = None # iwd + glidein dir name
         #self.exec_wrapper = None
         #self.startd_cron = None
-        #self.condor_master = None # the condor master popen object
         
 
         self.setup_signaling()
@@ -331,8 +332,9 @@ class CondorGlidein(object):
         """ 
         try:
             self.log.info("Sending SIGTERM to condor_master")
-            self.condor_master.terminate()
-            self.condor_master.wait() 
+            if self.condor_master is not None:
+                self.condor_master.terminate()
+                self.condor_master.wait() 
         except Exception as e: 
             self.log.debug(e)
 
@@ -579,11 +581,11 @@ class CondorGlidein(object):
         self.log.info("Starting condor_master..")
         cmd = "%s/sbin/condor_master -dyn -f -pidfile %s/master.pid -t" % (self.condor_dir, self.glidein_local_dir)
         self.condor_master = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        self.masterpid = condor_master.pid
+        self.masterpid = self.condor_master.pid
         self.mypid = os.getpid()
         self.log.info("I am running as pid %s. condor_master is running as pid %s" % (self.mypid, self.masterpid))
         time.sleep(300)
-        (out, err) = p.communicate()
+        (out, err) = self.condor_master.communicate()
         self.log.info("condor_master has returned")    
 
     def report_info(self):
