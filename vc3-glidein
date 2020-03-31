@@ -20,7 +20,7 @@ import textwrap
 import multiprocessing
 import uuid
 
-__version__ = "1.2.0"
+__version__ = "1.5.2"
 
 class CondorGlidein(object):
     """
@@ -42,7 +42,7 @@ class CondorGlidein(object):
                     startd_cron=None,
                     auth=None,
                     passwordfile=None,
-                    token=None,
+                    tokenfile=None,
                     extra_config=None,
                     ccb=None,
                     partitionable=None,
@@ -62,7 +62,7 @@ class CondorGlidein(object):
         self.noclean = noclean
         self.auth=auth
         self.passwordfile=passwordfile
-        self.token=token
+        self.tokenfile=tokenfile
         self.extra_config = extra_config 
         self.partitionable = partitionable
         self.cores = cores
@@ -504,19 +504,21 @@ class CondorGlidein(object):
                 """ % (self.password_full_path)
             config_bits.append(textwrap.dedent(passwd_config)) 
 
-        if "token" in self.auth and self.token is not None:
+        if "token" in self.auth and self.tokenfile is not None:
             try:
                 self.log.info("Using token authentication")
-                # name the token after the collector
-                tokenpath = self.glidein_local_dir + "/tokens.d/" + self.collector
-                with open(tokenpath, 'w') as f: 
-                    f.write(self.token+"\n")
-                os.chmod(tokenpath, 0400)
-                self.log.debug("Using token: %s", self.token)
+                tpath = self.glidein_local_dir + "/tokens.d"
+                self.log.debug("Path to tokenfile to copy: %s", self.tokenfile)
+                self.log.debug("Path to dest dir: %s", tpath)
+                f = self.realize_file(self.tokenfile, tpath) # copy file from http or unix
+                self.token_full_path = f
+                os.chmod(self.token_full_path, 0400)
+                self.log.debug("Using token file: %s", self.token_full_path)
             except Exception as e:
-                self.log.error("Something went wrong with token auth.")
+                self.log.error("Couldn't get pool token")
                 self.log.debug(e)
                 self.cleanup()
+
             token_config = """
                 SEC_DEFAULT_ENCRYPTION = REQUIRED
                 SEC_CREDENTIAL_DIRECTORY = $(GLIDEIN_LOCAL_DIR)/creds
@@ -727,7 +729,7 @@ if __name__ == '__main__':
          dest="passwordfile", help="HTCondor pool password file")
 
     ggroup.add_option("-T", "--token", action="store", type="string",
-         dest="token", help="HTCondor pool token")
+         dest="tokenfile", help="HTCondor pool token file")
 
     ggroup.add_option("-e", "--extra-config", action="store", type="string",
          dest="extra_config", help="Additional configuration")
@@ -803,7 +805,7 @@ if __name__ == '__main__':
         startd_cron=options.periodic,
         auth=options.auth,
         passwordfile=options.passwordfile,
-        token=options.token,
+        tokenfile=options.tokenfile,
         extra_config=options.extra_config,
         partitionable=options.partitionable,
         slots=options.slots,
