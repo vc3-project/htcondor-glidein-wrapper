@@ -2,7 +2,7 @@
 
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/69cfa4b889b242df977fbce919312fa5)](https://www.codacy.com/app/LincolnBryant/vc3-glidein?utm_source=github.com&utm_medium=referral&utm_content=vc3-project/vc3-glidein&utm_campaign=badger)
 
-Current version: v1.1.5
+Current version: v1.5.2
 
 ```
 Usage: ./vc3-glidein
@@ -50,6 +50,9 @@ Options:
                         Total disk (KiB) in glidein.
     -i GLIDEIN_ID, --id=GLIDEIN_ID
                         Unique Glidein ID
+    -T TOKENFILE, --token=TOKENFILE
+                        HTCondor pool token file
+
 
   Logging options:
     Control the verbosity of the glidein
